@@ -1,0 +1,8 @@
+# Build trees. linux/build.sh and android/build.sh put theirs beside the
+# script, so they land inside this directory.
+build/
+build-*/
+
+# android/build.sh writes the linked core here for gradle to import. It is
+# build output -- 17MB of it -- and was never tracked in the app repo either.
+prebuilt/

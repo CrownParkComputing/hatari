@@ -1,0 +1,48 @@
+/*
+ * Exported symbol list for libatarist_core.
+ *
+ * Everything not named here is local. Hatari contributes thousands of symbols
+ * to this library and a good number of them have names common enough to
+ * collide with the host process -- `main`, `select`, `debug`, `Log_Printf`.
+ * On Android all of that shares one namespace with every native dependency,
+ * so hiding them is a correctness requirement, not hygiene.
+ *
+ * Keep in step with bridge/atarist_bridge.h. A function declared there and
+ * missing here links fine and then fails at dlsym time with "symbol not
+ * found", which reads like a build that did not happen rather than a symbol
+ * that was hidden.
+ */
+{
+	global:
+		atarist_core_init;
+		atarist_core_start;
+		atarist_core_stop;
+		atarist_core_shutdown;
+		atarist_core_is_running;
+		atarist_core_set_paused;
+		atarist_core_is_paused;
+		atarist_core_reset;
+		atarist_core_set_floppy;
+		atarist_core_get_floppy;
+		atarist_core_get_framebuffer;
+		atarist_core_frame_counter;
+		atarist_core_pixel_aspect;
+		atarist_core_key_event;
+		atarist_core_mouse_motion;
+		atarist_core_mouse_button;
+		atarist_core_joystick;
+		atarist_core_save_state;
+		atarist_core_save_state_to;
+		atarist_core_load_state_from;
+		atarist_core_load_state;
+		atarist_core_state_is_empty;
+		atarist_core_fps;
+		atarist_core_audio_level;
+		atarist_core_status_line;
+		atarist_core_last_error;
+		atarist_core_abi_version;
+		atarist_core_hatari_version;
+		atarist_core_audio_backend;
+	local:
+		*;
+};
