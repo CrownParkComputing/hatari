@@ -13,7 +13,7 @@ ships two implementations of that seam:
 This directory is the **third**: it renders into memory, takes its input from
 the native launcher, and hands both to `../bridge/` through its stable C ABI.
 
-The consequence worth stating plainly: **no file under `vendor/hatari` is
+The consequence worth stating plainly: **no file outside `retro/` is
 patched by this project.** We are a peer of `src/sdl/`, not a modification of
 it, so a `git submodule update --remote` is an ordinary version bump rather
 than a rebase of a patch queue. If you find yourself editing Hatari sources,

@@ -1,7 +1,7 @@
 /*
  * atarist_internal.h - state shared between the bridge and the UI backend.
  *
- * Private to native/atarist_core. Nothing here crosses the public C ABI;
+ * Private to retro/. Nothing here crosses the public C ABI;
  * atarist_bridge.h is the only public surface.
  *
  * Why this file exists: Hatari's UI is a *seam*, not a library. The core calls
