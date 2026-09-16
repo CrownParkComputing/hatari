@@ -2,9 +2,9 @@
 # touching a single line of Hatari's CMake.
 #
 # The first attempt at this was the obvious one -- our CMakeLists as the top
-# level, add_subdirectory(vendor/hatari). It does not work, and the reason is
-# worth recording so nobody tries it again. Hatari's own CMake resolves several
-# paths through ${CMAKE_SOURCE_DIR}:
+# level, add_subdirectory() of the Hatari tree. It does not work, and the reason
+# is worth recording so nobody tries it again. Hatari's own CMake resolves
+# several paths through ${CMAKE_SOURCE_DIR}:
 #
 #   cmake/config-cmake.h        (the config.h template)
 #   cmake/                      (its Find*.cmake modules)
@@ -23,11 +23,11 @@
 # ZLIB_FOUND and the rest all exist.
 #
 # Used as:
-#   cmake -S vendor/hatari -B build \
+#   cmake -S <this repository> -B build \
 #         -DCMAKE_PROJECT_INCLUDE=<this file> \
 #         -DCMAKE_POSITION_INDEPENDENT_CODE=ON
 #
-# which is what native/atarist_core/*/build.sh does.
+# which is what retro/*/build.sh does.
 
 if(CMAKE_VERSION VERSION_LESS 3.19)
 	message(FATAL_ERROR
