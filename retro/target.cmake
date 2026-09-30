@@ -271,5 +271,13 @@ set_target_properties(atarist_core PROPERTIES
 	VISIBILITY_INLINES_HIDDEN ON)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
-	include("${ATARIST_CORE_DIR}/ios/app.cmake")
+	# The application target is not part of the core: an embedding repository
+	# (Fuji, the SwiftUI front end) injects its own app.cmake by passing
+	# -DRETRO_ATARIST_APP_CMAKE=<path> at configure time. The bundled default
+	# keeps a standalone checkout of this tree buildable on its own.
+	if(DEFINED RETRO_ATARIST_APP_CMAKE)
+		include("${RETRO_ATARIST_APP_CMAKE}")
+	else()
+		include("${ATARIST_CORE_DIR}/ios/app.cmake")
+	endif()
 endif()

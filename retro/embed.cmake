@@ -60,6 +60,10 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
 	enable_language(CXX)
 	enable_language(OBJC)
 	enable_language(OBJCXX)
+	# Swift, for embedding repositories whose application target is written in
+	# it (Fuji). Supported by the Xcode generator; must happen here, while
+	# project() is still configuring.
+	enable_language(Swift)
 
 	# CMake makes every executable an application bundle for iOS, including
 	# Hatari's desktop executable and its command-line helper tools. Upstream's
