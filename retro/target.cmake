@@ -271,5 +271,11 @@ set_target_properties(atarist_core PROPERTIES
 	VISIBILITY_INLINES_HIDDEN ON)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
-	include("${ATARIST_CORE_DIR}/ios/app.cmake")
+	# The application owns its UI and resources. An embedding app can supply
+	# its own target without relying on the old monorepo directory layout.
+	if(ATARIST_APP_CMAKE)
+		include("${ATARIST_APP_CMAKE}")
+	else()
+		include("${ATARIST_CORE_DIR}/ios/app.cmake")
+	endif()
 endif()
