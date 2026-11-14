@@ -77,7 +77,7 @@ static int Reset_ST(bool bCold)
 	MFP_Reset_All();              /* Setup MFPs */
 	Video_Reset();                /* Reset video */
 	VDI_Reset();                  /* Reset internal VDI variables */
-	NvRam_Reset();                /* reset NvRAM (video) settings */
+	NvRam_Reset( bCold);          /* reset NvRAM (video) settings */
 
 	GemDOS_Reset();               /* Reset GEMDOS emulation */
 	if (bCold)
@@ -111,6 +111,7 @@ static int Reset_ST(bool bCold)
 	ACIA_Reset( ACIA_Array );     /* ACIA */
 	IKBD_Reset(bCold);            /* Keyboard (after ACIA) */
 	SCC_Reset();
+	HDC_Reset(bCold);
 	if (Config_IsMachineFalcon() && !bUseVDIRes)
 		VIDEL_reset();
 	else

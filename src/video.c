@@ -466,6 +466,7 @@ const char Video_fileid[] = "Hatari video.c";
 #include "timing.h"
 #include "clocks_timings.h"
 #include "utils.h"
+#include "falcon/nvram.h"
 
 
 /* The border's mask allows to keep track of all the border tricks		*/
@@ -3340,7 +3341,7 @@ if ( CycInt_From_Opcode )		/* TEMP : to update CYCLES_COUNTER_VIDEO during an op
 	DmaSnd_STE_HBL_Update();			/* Update STE/TT DMA sound if needed */
 
 	/* TEMP IPF */
-	IPF_Emulate();
+	IPF_Caps_Emulate();
 	/* TEMP IPF */
 
 	nHBL++;						/* Increase HBL count */
@@ -5008,6 +5009,8 @@ void Video_InterruptHandler_VBL ( void )
 
 	/* Update the IKBD's internal clock */
 	IKBD_UpdateClockOnVBL ();
+	/* Update the MC146818/nvram internal clock */
+	NvRam_Clock_Update ();
 
 	/* Record video frame is necessary */
 	if ( Avi_AreWeRecording() )

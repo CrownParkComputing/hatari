@@ -1218,10 +1218,10 @@ static uae_u32 mmu030_table_search(uaecptr addr, uae_u32 fc, bool write, int lev
      * tables A, B, C and D and one indirect descriptor */
     uae_u32 descr[2];
     uae_u32 descr_type;
-	uaecptr descr_addr[7];
-	uaecptr descr_types[7];
+	TRY_VOLATILE uaecptr descr_addr[7];
+	TRY_VOLATILE uaecptr descr_types[7];
 	uaecptr table_addr = 0;
-    uaecptr page_addr = 0;
+    TRY_VOLATILE uaecptr page_addr = 0;
     uaecptr indirect_addr = 0;
     uae_u32 table_index = 0;
     uae_u32 limit = 0;
@@ -1229,7 +1229,7 @@ static uae_u32 mmu030_table_search(uaecptr addr, uae_u32 fc, bool write, int lev
     bool super = (fc&4) ? true : false;
     bool super_violation = false;
     bool write_protected = false;
-    uae_u8 cache_inhibit = CACHE_ENABLE_ALL;
+    TRY_VOLATILE uae_u8 cache_inhibit = CACHE_ENABLE_ALL;
     bool descr_modified = false;
         
     mmu030.status = 0; /* Reset status */
@@ -1240,7 +1240,7 @@ static uae_u32 mmu030_table_search(uaecptr addr, uae_u32 fc, bool write, int lev
     int addr_position = 1;
     int next_size = 0;
     int descr_size = 8;
-    int descr_num = 0;
+    TRY_VOLATILE int descr_num = 0;
     bool early_termination = false;
     int old_s;
     int i;
@@ -1865,6 +1865,11 @@ void mmu030_page_fault(uaecptr addr, bool read, int flags, uae_u32 fc)
 	// temporary store in 68040+ variables because stack frame creation may modify them.
 	regs.wb3_data = mmu030_data_buffer_out;
 	regs.wb2_address = mmu030_state[1];
+#ifdef WINUAE_FOR_HATARI
+	if (!mmu_debugger)
+		LOG_TRACE(TRACE_CPU_EXCEPTION, "mmu030 page fault addr %08x %s fc %d pc %08x ssw %04x\n",
+			addr, read ? "read" : "write", fc, regs.instruction_pc, regs.mmu_ssw);
+#endif
     bBusErrorReadWrite = read; 
 	mm030_stageb_address = addr;
 
@@ -2035,6 +2040,7 @@ static uaecptr mmu030_put_atc_generic(uaecptr addr, int l, uae_u32 fc, int flags
         return 0;
     }
 
+	mmu030_cache_state = mmu030.atc[l].physical.cache_inhibit;
 	mmu030_add_data_write_cache(addr, physical_addr, fc);
 
 	return physical_addr + page_index;
@@ -2055,6 +2061,7 @@ static uae_u32 mmu030_get_atc_generic(uaecptr addr, int l, uae_u32 fc, int flags
         return 0;
     }
 
+	mmu030_cache_state = mmu030.atc[l].physical.cache_inhibit;
 	mmu030_add_data_read_cache(addr, physical_addr, fc);
 
 	return physical_addr + page_index;
@@ -3396,6 +3403,15 @@ void m68k_do_rte_mmu030c (uaecptr a7)
 		regs.prefetch020[1] = stagesbc >> 16;
 		regs.prefetch020[0] = oc >> 16;
 		mmu030_opcode_stageb = (uae_u16)oc;
+		// The pending write is replayed below and can fault again (an
+		// unaligned write whose second half lands in a page the handler
+		// did not map). The frame built for that fault stores regs.irc as
+		// the opcode of the instruction to resume, so it must hold the
+		// stage B opcode from this frame and not this RTE's own opcode:
+		// otherwise the handler's RTE resumes by executing an RTE at the
+		// faulted instruction's PC, on a stack without a frame.
+		regs.irc = (uae_u16)oc;
+		mmu030_opcode = -1;
 
 		mmu030_data_buffer_out = mmu030_data_buffer_out_v;
 		mmu030_state[0] = 0;

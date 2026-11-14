@@ -365,6 +365,47 @@ static int debug_out (const TCHAR *format, ...)
 
 #endif	/* ! WINUAE_FOR_HATARI */
 
+#ifdef WINUAE_FOR_HATARI
+/* Whether an emulated MMU is translating addresses at the moment
+ * (not before the OS enables it, e.g. from a --parse file at startup) */
+bool debug_mmu_translating(void)
+{
+	if (currprefs.mmu_model == 68030)
+		return (tc_030 & 0x80000000) != 0;	/* TC enable */
+	if (currprefs.mmu_model >= 68040)
+		return regs.mmu_enabled;
+	return false;
+}
+
+/* Translate a logical data address for Hatari's debugger, as supervisor
+ * or user data, into *phys. Returns false when the MMU can't map it.
+ * The debug variants of the translation set mmu_debugger: the table walk
+ * leaves the descriptors' used/modified bits alone and a fault is not
+ * traced. */
+bool debug_mmu_translate_data(uaecptr addr, bool super, uaecptr *phys)
+{
+	struct mmu_debug_data *mdd;
+	flagtype olds = regs.s;
+	bool ok = true;
+
+	regs.s = super;		/* FC_DATA follows it */
+	TRY(p) {
+		if (currprefs.mmu_model == 68030)
+			*phys = debug_mmu030_translate(addr, FC_DATA, false, &mdd);
+		else	/* (addr, val, super, data, write, size, mdd) */
+			*phys = debug_mmu_translate(addr, 0, super, true, false, sz_byte, &mdd);
+	} CATCH(p) {
+		ok = false;
+	} ENDTRY
+	if (currprefs.mmu_model == 68030)
+		debug_mmu030_translate_end();
+	else
+		debug_mmu_translate_end();
+	regs.s = olds;
+	return ok;
+}
+#endif
+
 uae_u32 get_byte_debug (uaecptr addr)
 {
 	uae_u32 v = 0xff;
@@ -375,7 +416,7 @@ uae_u32 get_byte_debug (uaecptr addr)
 			if (currprefs.mmu_model == 68030) {
 				v = mmu030_get_generic (addr, debug_mmu_mode, sz_byte, MMU030_SSW_SIZE_B);
 			} else {
-				if (debug_mmu_mode & 1) {
+				if (debug_mmu_mode & 2) {
 					bool odd = (addr & 1) != 0;
 					addr &= ~1;
 					v = mmu_get_iword(addr, sz_byte);
@@ -409,7 +450,7 @@ uae_u32 get_word_debug (uaecptr addr)
 			if (currprefs.mmu_model == 68030) {
 				v = mmu030_get_generic (addr, debug_mmu_mode, sz_word, MMU030_SSW_SIZE_W);
 			} else {
-				if (debug_mmu_mode & 1) {
+				if (debug_mmu_mode & 2) {
 					v = mmu_get_iword(addr, sz_word);
 				} else {
 					v = mmu_get_user_word (addr, regs.s != 0, false, sz_word, false);
@@ -437,7 +478,7 @@ uae_u32 get_long_debug (uaecptr addr)
 			if (currprefs.mmu_model == 68030) {
 				v = mmu030_get_generic (addr, debug_mmu_mode, sz_long, MMU030_SSW_SIZE_L);
 			} else {
-				if (debug_mmu_mode & 1) {
+				if (debug_mmu_mode & 2) {
 					v = mmu_get_ilong(addr, sz_long);
 				} else {
 					v = mmu_get_user_long (addr, regs.s != 0, false, sz_long, false);
@@ -510,6 +551,7 @@ int debug_safe_addr (uaecptr addr, int size)
 			else
 				addr = mmu030_translate (addr, regs.s != 0, (debug_mmu_mode & 1), false);
 		} CATCH(p) {
+			regs.s = olds;
 			STOPTRY;
 			return 0;
 		} ENDTRY

@@ -30,6 +30,7 @@ const char NCR5380_fileid[] = "Hatari ncr5380.c";
 #include "stMemory.h"
 #include "newcpu.h"
 #include "tos.h"
+#include "video.h"
 
 #define WITH_NCR5380 1
 
@@ -37,6 +38,9 @@ int nScsiPartitions;
 bool bScsiEmuOn;
 
 static SCSI_CTRLR ScsiBus;
+
+static uint8_t Ncr5380_IRQ_Line;		/* Connected to TT MFP GPIP7 */
+
 
 #define MAX_TOTAL_SCSI_DEVICES 8
 
@@ -47,6 +51,11 @@ static SCSI_CTRLR ScsiBus;
 #ifndef _T
 #define _T(x) x
 #endif
+
+
+#define		NCR5380_IRQ_ON			0	/* O/low sets IRQ line */
+#define		NCR5380_IRQ_OFF			1	/* 1/high clears IRQ line */
+
 
 // raw scsi
 
@@ -122,6 +131,7 @@ static const uae_s16 scsicmdsizes[] = { 6, 10, 10, 12, 16, 12, 10, 6 };
 static uae_u8 ncr5380_bget(struct soft_scsi *scsi, int reg);
 void ncr5380_bput(struct soft_scsi *scsi, int reg, uae_u8 v);
 static void ncr5380_set_irq(struct soft_scsi *scsi);
+static void Ncr5380_Change_IRQ ( uint8_t bit );
 
 static int scsi_data_dir(struct scsi_data *sd)
 {
@@ -489,6 +499,14 @@ static bool scsi_emulate_analyze (struct scsi_data *sd)
 			sd->direction = 0;
 		}
 		return true;
+	case 0x15: // MODE SELECT (6)
+	case 0x55: // MODE SELECT (10)
+		if (cmd_len == 6) {
+			data_len = sd->cmd[4];
+		} else {
+			data_len = (sd->cmd[7] << 8) | sd->cmd[8];
+		}
+	break;
 	}
 	if (data_len < 0) {
 		if (cmd_len == 6) {
@@ -786,10 +804,7 @@ static void ncr5380_set_irq(struct soft_scsi *scsi)
 	write_log(_T("IRQ\n"));
 #endif
 
-	if (Config_IsMachineFalcon())
-		FDC_SetIRQ(FDC_IRQ_SOURCE_HDC);
-	else if (Config_IsMachineTT())
-		MFP_GPIP_Set_Line_Input ( pMFP_TT , MFP_TT_GPIP_LINE_SCSI_NCR , MFP_GPIP_STATE_HIGH );
+	Ncr5380_Change_IRQ ( NCR5380_IRQ_ON );
 }
 
 static void ncr5380_databusoutput(struct soft_scsi *scsi)
@@ -892,8 +907,7 @@ static uae_u8 ncr5380_bget(struct soft_scsi *scsi, int reg)
 		break;
 		case 7:
 		scsi->irq = false;
-		if (Config_IsMachineFalcon())
-			FDC_ClearIRQ();
+		Ncr5380_Change_IRQ ( NCR5380_IRQ_OFF );
 		break;
 		case 8: // fake dma port
 		v = raw_scsi_get_data(r, true);
@@ -964,6 +978,13 @@ void ncr5380_bput(struct soft_scsi *scsi, int reg, uae_u8 v)
 			scsi->dma_direction = 0;
 			scsi->dma_active = false;
 			scsi->dma_drq = false;
+		} else if (!(old & 2)) {
+			/* DMA mode just enabled: if the target has already moved
+			 * to a phase other than the one in the TCR, the real chip
+			 * raises the phase-mismatch interrupt at once. Atari
+			 * System V arms DMA mode after the command phase and
+			 * SLEEPS for exactly this interrupt. */
+			ncr5380_check_phase(scsi);
 		}
 		break;
 		case 5:
@@ -1159,5 +1180,62 @@ void Ncr5380_TT_DMA_Ctrl_WriteWord(void)
 	if (IoMem[0xff8715] & 2)
 		dma_check(&ncr_soft_scsi);
 }
+
+
+
+/*-----------------------------------------------------------------------*/
+/**
+ * Set or reset the NCR5380's IRQ line
+ *
+ * On Falcon :
+ *   IRQ signal is inverted (0/low irq set, 1/high irq cleared)
+ *   IRQ signal is and-connected with FDC IRQ signal on MFP GPIP5
+ *
+ * On TT :
+ *   IRQ signal is active high (0/low irq cleared, 1/high irq set)
+ *   IRQ signal is connected to TT MFP GPIP7
+ */
+static void Ncr5380_Change_IRQ ( uint8_t bit )
+{
+	uint8_t		Line_State;
+
+	LOG_TRACE ( TRACE_SCSIDRV, "ncr5380 set irq line val=%d (%s) VBL=%d HBL=%d\n" , bit , bit==NCR5380_IRQ_ON ? "on" : "off" , nVBLs , nHBL );
+
+	if (Config_IsMachineFalcon())
+	{
+		/* IRQ is connected to MFP GPIP5 (with FDC) */
+		if ( bit == NCR5380_IRQ_ON )
+			HDC_Set_Line_IRQ_MFP ( HDC_IRQ_ON );
+		else
+			HDC_Set_Line_IRQ_MFP ( HDC_IRQ_OFF );	/* Connected to MFP GPIP5 (with FDC) */
+	}
+
+	else if (Config_IsMachineTT())
+	{
+		/* IRQ is connected to TT MFP GPIP7. IRQ is active high */
+		if ( bit == NCR5380_IRQ_ON )
+			Line_State = MFP_GPIP_STATE_HIGH;
+		else
+			Line_State = MFP_GPIP_STATE_LOW;
+
+		Ncr5380_IRQ_Line = Line_State;
+
+		MFP_GPIP_Set_Line_Input ( pMFP_TT , MFP_TT_GPIP_LINE_SCSI_NCR , Line_State );
+	}
+}
+
+
+
+
+/*-----------------------------------------------------------------------*/
+/**
+ * Return the value of the NCR5380's IRQ line (as seen on TT MFP GPIP7)
+ * IRQ signal is active high (0/low irq cleared, 1/high irq set)
+ */
+uint8_t	Ncr5380_Get_Line_IRQ_MFP ( void )
+{
+	return Ncr5380_IRQ_Line;
+}
+
 
 

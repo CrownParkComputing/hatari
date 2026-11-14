@@ -15,6 +15,7 @@ const char HDC_fileid[] = "Hatari hdc.c";
 #include "debugui.h"
 #include "endianswap.h"
 #include "file.h"
+#include "filename.h"
 #include "fdc.h"
 #include "hdc.h"
 #include "cycles.h"
@@ -31,7 +32,7 @@ const char HDC_fileid[] = "Hatari hdc.c";
 
 
 /*
-  ACSI emulation: 
+  ACSI emulation:
   ACSI commands are six byte-packets sent to the
   hard drive controller (which is on the HD unit, not in the ST)
 
@@ -46,7 +47,7 @@ const char HDC_fileid[] = "Hatari hdc.c";
   The ACSI command set is a subset of the SCSI standard.
   (for details, see the X3T9.2 SCSI draft documents
   from 1985, for an example of writing ACSI commands,
-  see the TOS DMA boot code) 
+  see the TOS DMA boot code)
 */
 
 // #define DISALLOW_HDC_WRITE
@@ -57,9 +58,12 @@ const char HDC_fileid[] = "Hatari hdc.c";
 #define HDC_ReadInt32(a, i) (((unsigned) a[i] << 24) | ((unsigned) a[i + 1] << 16) | ((unsigned) a[i + 2] << 8) | a[i + 3])
 
 /* HDC globals */
-static SCSI_CTRLR AcsiBus;
-int nAcsiPartitions;
-bool bAcsiEmuOn;
+static		SCSI_CTRLR AcsiBus;
+int		nAcsiPartitions;
+bool		bAcsiEmuOn;
+
+uint8_t		IRQ_Line_HDC;				/* Connected to MFP GPIP5 */
+
 
 /* Our dummy INQUIRY response data */
 static unsigned char inquiry_bytes[] =
@@ -237,7 +241,12 @@ static void HDC_Cmd_Inquiry(SCSI_CTRLR *ctr)
 	 * Peripheral Device Type according to the SCSI standard */
 	buf[0] = HDC_GetLUN(ctr) == 0 ? 0 : 0x7F;
 
+	/* For SCSI-2 and newer, the response data format is SCSI-2 */
 	buf[2] = dev->scsi_version;
+	if (dev->scsi_version >= 2)
+	{
+		buf[3] = 0x02;
+	}
 
 	ctr->status = HD_STATUS_OK;
 
@@ -354,19 +363,44 @@ static void HDC_CmdModeSense0x00(SCSI_DEV *dev, SCSI_CTRLR *ctr, uint8_t *buf)
 }
 
 
+/* Mode pages 3 and 4 describe one geometry: 128 heads x 32 sectors,
+ * a 4096-block cylinder. */
+#define HDC_GEOM_HEADS		128
+#define HDC_GEOM_SECTORS	32
+#define HDC_GEOM_CYLSIZE	(HDC_GEOM_HEADS * HDC_GEOM_SECTORS)
+
+/**
+ * Mode sense - Format device page.
+ */
+static void HDC_CmdModeSense0x03(SCSI_DEV *dev, SCSI_CTRLR *ctr, uint8_t *buf)
+{
+	memset(buf, 0, 24);
+	buf[0] = 3;
+	buf[1] = 22;
+	buf[3] = HDC_GEOM_HEADS;           // Tracks per zone, low
+	buf[10] = HDC_GEOM_SECTORS >> 8;   // Sectors per track
+	buf[11] = HDC_GEOM_SECTORS & 0xff;
+	buf[12] = dev->blockSize >> 8;     // Data bytes per physical sector
+	buf[13] = dev->blockSize & 0xff;
+	buf[15] = 1;     // Interleave
+	buf[20] = 0x40;  // Hard sectored
+}
+
 /**
  * Mode sense - Rigid disk geometry page (requested by ASV).
  */
 static void HDC_CmdModeSense0x04(SCSI_DEV *dev, SCSI_CTRLR *ctr, uint8_t *buf)
 {
+	uint32_t cyls = (dev->hdSize + HDC_GEOM_CYLSIZE - 1) / HDC_GEOM_CYLSIZE;
+
 	buf[0] = 4;
 	buf[1] = 22;
 
-	buf[2] = dev->hdSize >> 23;  // Number of cylinders, high
-	buf[3] = dev->hdSize >> 15;  // Number of cylinders, med
-	buf[4] = dev->hdSize >> 7;   // Number of cylinders, low
+	buf[2] = cyls >> 16;  // Number of cylinders, high
+	buf[3] = cyls >> 8;   // Number of cylinders, med
+	buf[4] = cyls;        // Number of cylinders, low
 
-	buf[5] = 128;    // Number of heads
+	buf[5] = HDC_GEOM_HEADS;    // Number of heads
 
 	buf[6] = 0;
 	buf[7] = 0;
@@ -423,20 +457,30 @@ static void HDC_Cmd_ModeSense(SCSI_CTRLR *ctr)
 		HDC_CmdModeSense0x00(dev, ctr, buf);
 		break;
 
+	 case 0x03:
+		buf = HDC_PrepRespBuf(ctr, 28);
+		HDC_CmdModeSense0x03(dev, ctr, buf + 4);
+		buf[0] = 27;
+		buf[1] = 0;
+		buf[2] = 0;
+		buf[3] = 0;
+		break;
+
 	 case 0x04:
 		buf = HDC_PrepRespBuf(ctr, 28);
 		HDC_CmdModeSense0x04(dev, ctr, buf + 4);
-		buf[0] = 24;
+		buf[0] = 27;
 		buf[1] = 0;
 		buf[2] = 0;
 		buf[3] = 0;
 		break;
 
 	 case 0x3f:
-		buf = HDC_PrepRespBuf(ctr, 44);
-		HDC_CmdModeSense0x04(dev, ctr, buf + 4);
-		HDC_CmdModeSense0x00(dev, ctr, buf + 28);
-		buf[0] = 43;
+		buf = HDC_PrepRespBuf(ctr, 68);
+		HDC_CmdModeSense0x03(dev, ctr, buf + 4);
+		HDC_CmdModeSense0x04(dev, ctr, buf + 28);
+		HDC_CmdModeSense0x00(dev, ctr, buf + 52);
+		buf[0] = 67;
 		buf[1] = 0;
 		buf[2] = 0;
 		buf[3] = 0;
@@ -864,7 +908,7 @@ off_t HDC_CheckAndGetSize(const char *hdtype, const char *filename, unsigned lon
 	off_t filesize;
 	char shortname[48];
 
-	File_ShrinkName(shortname, filename, sizeof(shortname) - 1);
+	FileName_Shrink(shortname, filename, sizeof(shortname) - 1);
 
 	filesize = File_Length(filename);
 	if (filesize < 0)
@@ -1018,6 +1062,64 @@ void HDC_UnInit(void)
 
 /*---------------------------------------------------------------------*/
 /**
+ * Reset the ACSI device
+ * In return, the device should clear IRQ line connected to MFP GPIP5 (set to high)
+ * We need to clear the IRQ on reset because it's and-connected with the FDC IRQ
+ */
+void HDC_Reset ( bool bCold )
+{
+	HDC_Set_Line_IRQ_MFP ( HDC_IRQ_OFF );
+}
+
+
+
+/*-----------------------------------------------------------------------*/
+/**
+ * Save/Restore snapshot of local variables
+ */
+void    HDC_MemorySnapShot_Capture(bool bSave)
+{
+	MemorySnapShot_Store(&IRQ_Line_HDC, sizeof(IRQ_Line_HDC));
+}
+
+
+
+/*-----------------------------------------------------------------------*/
+/**
+ * Set or reset the HDC / ACSI's IRQ line
+ * IRQ signal is inverted (0/low irq set, 1/high irq cleared)
+ *
+ * The FDC and HDC IRQ signals are and-connected to GPIP5 on the MFP
+ */
+void	HDC_Set_Line_IRQ_MFP ( uint8_t bit )
+{
+	uint8_t		Line_State;
+
+	if ( bit == HDC_IRQ_ON )
+		Line_State = MFP_GPIP_STATE_LOW;
+	else
+		Line_State = MFP_GPIP_STATE_HIGH;
+
+	IRQ_Line_HDC = Line_State;
+
+	MFP_GPIP_Set_Line_Input ( pMFP_Main , MFP_GPIP_LINE_FDC_HDC , Line_State );
+}
+
+
+/*-----------------------------------------------------------------------*/
+/**
+ * Return the value of the HDC / ACSI's IRQ line
+ * IRQ signal is inverted (0/low irq set, 1/high irq cleared)
+ */
+uint8_t	HDC_Get_Line_IRQ_MFP ( void )
+{
+	return IRQ_Line_HDC;
+}
+
+
+
+/*---------------------------------------------------------------------*/
+/**
  * Reset command status.
  */
 void HDC_ResetCommandStatus(void)
@@ -1159,7 +1261,7 @@ static void Acsi_DmaTransfer(void)
 	/* a minimum delay before setting Hdc's IRQ (eg "Idris OS" in ACSI mode) */
 	/* For now we simulate this with a timer and a fixed delay, but this should be measured */
 	/* on real HW (depending on the read/write operation and the size of the transfer) */
-	FDC_ClearHdcIRQ();
+	HDC_Set_Line_IRQ_MFP ( HDC_IRQ_OFF );
 	CycInt_AddRelativeInterrupt(ACSI_TRANSFER_MIN_CYCLES, INT_CPU_CYCLE, INTERRUPT_HDC_ACSI);
 
 	/* For the MegaSTE, using the HDC DMA will flush the external cache */
@@ -1170,7 +1272,7 @@ static void Acsi_DmaTransfer(void)
 static void Acsi_WriteCommandByte(int addr, uint8_t byte)
 {
 	/* Clear IRQ initially (will be set again if byte has been accepted) */
-	FDC_ClearHdcIRQ();
+	HDC_Set_Line_IRQ_MFP ( HDC_IRQ_OFF );
 
 	/* When the A1 pin is pushed to 0, we want to start a new command.
 	 * We ignore the pin for the second byte in the packet since this
@@ -1205,7 +1307,8 @@ static void Acsi_WriteCommandByte(int addr, uint8_t byte)
 	if (AcsiBus.devs[AcsiBus.target].enabled)
 	{
 		FDC_SetDMAStatus(AcsiBus.bDmaError);	/* Mark DMA error */
-		FDC_SetIRQ(FDC_IRQ_SOURCE_HDC);
+		HDC_Set_Line_IRQ_MFP ( HDC_IRQ_ON );
+
 	}
 }
 
@@ -1253,5 +1356,5 @@ void HDC_DmaTransfer(void)
 void HDC_ACSI_InterruptHandler_Update ( void )
 {
 	CycInt_AcknowledgeInterrupt();
-	FDC_SetIRQ(FDC_IRQ_SOURCE_HDC);
+	HDC_Set_Line_IRQ_MFP ( HDC_IRQ_ON );
 }
