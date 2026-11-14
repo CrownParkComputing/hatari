@@ -29,6 +29,7 @@
 #include "reset.h"
 #include "version.h"
 #include "video.h"
+#include "nvram.h"
 
 #include "atarist_bridge.h"
 #include "atarist_internal.h"
@@ -514,6 +515,10 @@ static void mailbox_service(void)
 		 * GEMDOS, the screen mode) rather than us guessing.
 		 */
 		CNF_PARAMS next = ConfigureParams;
+		/* Flush the previous title before changing the NVRAM destination. */
+		NvRam_UnInit();
+		snprintf(next.Memory.szMemoryCaptureFileName, sizeof(next.Memory.szMemoryCaptureFileName), "%s/memory.sav", g_atarist.work_dir);
+		snprintf(next.Memory.szAutoSaveFileName, sizeof(next.Memory.szAutoSaveFileName), "%s/auto.sav", g_atarist.work_dir);
 
 		next.System.nMachineType = g_atarist.cfg.machine;
 		next.System.bBlitter = g_atarist.cfg.blitter != 0;
@@ -546,6 +551,7 @@ static void mailbox_service(void)
 		 * in place whenever only the disk changed, and a surprising number
 		 * of ST loaders check memory they have no business checking. */
 		Change_CopyChangedParamsToConfiguration(&ConfigureParams, &next, true);
+		NvRam_Init();
 
 		copy_path(g_atarist.floppy_path[0], sizeof(g_atarist.floppy_path[0]),
 		          g_atarist.cfg_floppy_a);
@@ -743,6 +749,7 @@ int32_t atarist_core_start(const AtariStConfig *cfg)
 	copy_path(g_atarist.cfg_ide, sizeof(g_atarist.cfg_ide), cfg->ide_image);
 	if (cfg->work_dir && *cfg->work_dir)
 		copy_path(g_atarist.work_dir, sizeof(g_atarist.work_dir), cfg->work_dir);
+	ensure_dir(g_atarist.work_dir);
 
 	/* Checked here rather than left to Hatari: without a TOS image Hatari
 	 * exits the process (Main_ErrorExit), which from the frontend looks

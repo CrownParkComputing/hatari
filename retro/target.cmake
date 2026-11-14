@@ -36,6 +36,13 @@ set(BACKEND_SOURCES
 	"${ATARIST_CORE_DIR}/backend/dialogs.c"
 	"${ATARIST_CORE_DIR}/backend/microphone.c")
 
+# Standalone Hatari uses HOME for NVRAM and other default output paths. The
+# embedded host owns a separate saves directory for every title instead.
+get_target_property(ATARIST_CORE_SOURCES Core SOURCES)
+list(FILTER ATARIST_CORE_SOURCES EXCLUDE REGEX "(^|/)paths\\.c$")
+set_property(TARGET Core PROPERTY SOURCES ${ATARIST_CORE_SOURCES})
+list(APPEND BACKEND_SOURCES "${ATARIST_CORE_DIR}/backend/paths.c")
+
 # Exactly one audio sink is compiled in. SDL only where SDL is already being
 # linked anyway (desktop); everywhere else the null sink keeps the build
 # working and the emulator silent until a native sink is written.
