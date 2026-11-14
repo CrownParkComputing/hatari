@@ -196,6 +196,9 @@ target_include_directories(atarist_core PRIVATE
 if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
 	target_include_directories(CoreHmsa PRIVATE
 		"${ATARIST_CORE_DIR}/ios/compat")
+	if(TARGET CoreFile)
+		target_include_directories(CoreFile PRIVATE "${ATARIST_CORE_DIR}/ios/compat")
+	endif()
 endif()
 
 # pthread is a separate library on glibc but is part of libc on Android's
