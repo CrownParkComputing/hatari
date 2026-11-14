@@ -28,6 +28,13 @@
 
 #include "atarist_internal.h"
 
+void Main_ApplyStartupOptions(void)
+{
+	/* The native bridge passes its boot options through Hatari's command
+	 * line. This hook is for libretro's separate option system; the SDL
+	 * frontend uses the same empty implementation. */
+}
+
 void Main_RequestQuit(int exitval)
 {
 	/* Reached when the emulated machine asks to be switched off -- TOS's

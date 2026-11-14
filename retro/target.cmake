@@ -148,6 +148,14 @@ add_library(atarist_core ${ATARIST_CORE_LIBRARY_TYPE}
 	${ATARIST_UAE_CPU_OBJECTS}
 	$<TARGET_OBJECTS:Debug>)
 
+# Upstream split file I/O and the reusable debugger code into separate
+# object targets. Include them when available, retaining older-core support.
+foreach(extra CoreFile DebugUT)
+	if(TARGET ${extra})
+		target_sources(atarist_core PRIVATE $<TARGET_OBJECTS:${extra}>)
+	endif()
+endforeach()
+
 if(ANDROID)
 	# NDK r28's linux/stddef.h defines __counted_by as a compatibility macro,
 	# while Hatari's log.c probes Clang's similarly named field attribute and
@@ -263,6 +271,7 @@ endif()
 # costs nothing there.
 if(NOT APPLE AND NOT WIN32)
 	target_link_options(atarist_core PRIVATE
+		"-Wl,--no-undefined"
 		"-Wl,--version-script=${ATARIST_CORE_DIR}/atarist_core.map")
 endif()
 

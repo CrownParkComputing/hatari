@@ -62,7 +62,7 @@ cmake -S "$root" -B "$build" \
 	-DENABLE_DSP_EMU=0 \
 	-DCMAKE_BUILD_TYPE=Release \
 	"${@:2}"
-cmake --build "$build" --target atarist_core --parallel "$(nproc)"
+cmake --build "$build" --target atarist_core --parallel "${JOBS:-4}"
 
 dest="$here/prebuilt/$abi"
 mkdir -p "$dest"
